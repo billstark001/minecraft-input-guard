@@ -9,6 +9,7 @@ import (
 const (
 	checkInterval = 100 * time.Millisecond
 	layoutTimeout = 500 * time.Millisecond
+	retryInterval = 250 * time.Millisecond
 )
 
 type Input interface {
@@ -39,7 +40,9 @@ type change struct {
 	confirmed bool
 
 	originalMode uintptr
-	modeChanged  bool
+	modeTouched  bool
+	modeKnown    bool
+	warned       bool
 	tries        int
 }
 
@@ -79,7 +82,7 @@ func (g *Guard) update(now time.Time) {
 			}
 			if !g.change.confirmed {
 				g.log("Minecraft did not activate the US keyboard layout; trying its IME window")
-				g.beginMode(profile)
+				g.beginMode(profile, now)
 				return
 			}
 		}
@@ -104,43 +107,58 @@ func (g *Guard) update(now time.Time) {
 				}
 			}
 		}
-		g.beginMode(profile)
+		g.beginMode(profile, now)
 		return
 	}
-	if g.change.tries < 2 {
-		g.readAndSuspendMode(false)
-	}
+	g.readAndSuspendMode(now)
 }
 
-func (g *Guard) beginMode(profile uintptr) {
+func (g *Guard) beginMode(profile uintptr, now time.Time) {
 	g.change = &change{profile: profile}
-	g.readAndSuspendMode(true)
+	g.readAndSuspendMode(now)
 }
 
-func (g *Guard) readAndSuspendMode(first bool) {
+func (g *Guard) readAndSuspendMode(now time.Time) {
 	c := g.change
 	mode, err := g.Input.IMEMode(g.window, c.profile)
 	if err != nil {
-		c.tries = 2
-		g.log("could not read Minecraft's IME mode: %v", err)
+		if !c.warned {
+			g.log("could not read Minecraft's IME mode; will retry: %v", err)
+			c.warned = true
+		}
+		g.nextCheck = now.Add(retryInterval)
 		return
 	}
-	if first {
+	if !c.modeKnown {
 		c.originalMode = mode
+		c.modeKnown = true
 	}
 	if mode == 0 {
 		c.tries = 0
+		c.warned = false
+		return
+	}
+	if c.tries == 2 {
+		if !c.warned {
+			g.log("Minecraft's IME still reports composition mode; will retry")
+			c.warned = true
+		}
+		c.tries = 0
+		g.nextCheck = now.Add(retryInterval)
 		return
 	}
 	c.tries++
+	first := !c.modeTouched
+	c.modeTouched = true
 	if err := g.Input.SetIMEMode(g.window, c.profile, 0); err != nil {
-		g.log("could not set Minecraft's IME to direct input: %v", err)
-		return
-	}
-	if !c.modeChanged {
+		if !c.warned {
+			g.log("could not set Minecraft's IME to direct input; will retry: %v", err)
+			c.warned = true
+		}
+		g.nextCheck = now.Add(retryInterval)
+	} else if first {
 		g.log("set Minecraft IME to direct input (profile 0x%X, previous mode 0x%X)", uint32(c.profile), mode)
 	}
-	c.modeChanged = true
 }
 
 func (g *Guard) Restore() {
@@ -157,7 +175,7 @@ func (g *Guard) Restore() {
 		if current == c.english || current == c.profile && !c.confirmed {
 			g.restoreResult(g.Input.SetLayout(w, c.profile))
 		}
-	} else if c.modeChanged && c.originalMode != 0 && current == c.profile {
+	} else if c.modeTouched && c.originalMode != 0 && current == c.profile {
 		g.restoreResult(g.Input.SetIMEMode(w, c.profile, c.originalMode))
 	}
 }

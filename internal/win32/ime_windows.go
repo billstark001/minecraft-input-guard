@@ -102,7 +102,7 @@ func (p Input) imeControl(w game.Window, profile, command, argument uintptr) (ui
 	// and bound the time spent waiting for the game's message loop.
 	var value uintptr
 	ok, _, err := sendMessageTimeout.Call(hwnd, wmIMEControl, command, argument,
-		smtoBlock|smtoAbortIfHung|smtoErrorOnExit, 35, uintptr(unsafe.Pointer(&value)))
+		smtoBlock|smtoAbortIfHung|smtoErrorOnExit, 75, uintptr(unsafe.Pointer(&value)))
 	if ok == 0 {
 		return 0, fmt.Errorf("WM_IME_CONTROL(0x%X): %w", command, err)
 	}

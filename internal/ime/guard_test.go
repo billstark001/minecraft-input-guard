@@ -20,6 +20,7 @@ type fakeInput struct {
 	local, exists          bool
 	delay, ignoreLayout    bool
 	changes, closes, opens int
+	modeFailures           int
 }
 
 func (f *fakeInput) Exists(game.Window) bool    { return f.exists }
@@ -27,6 +28,10 @@ func (f *fakeInput) Layout(game.Window) uintptr { return f.layout }
 func (f *fakeInput) LocalLayouts() bool         { return f.local }
 func (f *fakeInput) USLayout() uintptr          { return us }
 func (f *fakeInput) IMEMode(game.Window, uintptr) (uintptr, error) {
+	if f.modeFailures > 0 {
+		f.modeFailures--
+		return 0, errors.New("game thread is busy")
+	}
 	return f.mode, nil
 }
 func (f *fakeInput) SetLayout(_ game.Window, layout uintptr) error {
@@ -133,5 +138,23 @@ func TestRestoreDoesNotOverwriteAnotherProfile(t *testing.T) {
 	g.Restore()
 	if f.layout != japanese || f.changes != 1 {
 		t.Fatalf("manually selected profile was overwritten: %+v", f)
+	}
+}
+
+func TestRetryWhenWorldLoadingDelaysIMEQuery(t *testing.T) {
+	f := &fakeInput{layout: pinyin, mode: 1025, exists: true, modeFailures: 1}
+	g := Guard{Input: f}
+	now := time.Now()
+	capture(&g, now)
+	if f.closes != 0 {
+		t.Fatalf("IME mode changed without a successful snapshot: %+v", f)
+	}
+	g.Observe(gameWindow, game.MouseCaptured, now.Add(time.Second))
+	if f.mode != 0 || f.closes != 1 {
+		t.Fatalf("IME mode was not suspended after the game became responsive: %+v", f)
+	}
+	g.Observe(gameWindow, game.MouseReleased, now.Add(2*time.Second))
+	if f.mode != 1025 {
+		t.Fatalf("original IME mode was not restored: %+v", f)
 	}
 }
