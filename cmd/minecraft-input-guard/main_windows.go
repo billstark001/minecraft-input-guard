@@ -82,17 +82,13 @@ func run(ctx context.Context, options config.Options, logger *log.Logger) error 
 	if err != nil {
 		return err
 	}
-	if len(options.Blocked) != 0 {
-		filter := hotkey.New(options.Blocked, win32.KeyDown)
-		removeHook, err := win32.InstallKeyboardHook(func(key uint8, up bool) bool {
-			block, maskStart := filter.Event(key, up, win32.Modifiers, func() bool {
-				return win32.MinecraftWindow(win32.Foreground()).Handle != 0
-			})
-			if maskStart {
-				win32.MaskStartMenu()
-			}
-			return block
-		})
+	keys := &keyboard{
+		shortcuts: hotkey.New(options.Blocked, win32.KeyDown),
+		ime:       options.IME, notify: desktop.NotifyInputState,
+	}
+	desktop.OnInputStateChange = keys.flush
+	if len(options.Blocked) != 0 || options.IME {
+		removeHook, err := win32.InstallKeyboardHook(keys.event)
 		if err != nil {
 			desktop.Close()
 			_ = desktop.Run()
@@ -109,7 +105,7 @@ func run(ctx context.Context, options config.Options, logger *log.Logger) error 
 		if options.IME {
 			monitor(ctx, &ime.Guard{
 				Input: win32.Input{}, UseLocalLayout: options.UseLocalLayout, Report: logger.Printf,
-			})
+			}, keys)
 		}
 	}()
 	go func() {
@@ -143,11 +139,12 @@ func (s *sampler) read(now time.Time) (game.Window, game.MouseMode) {
 	return s.window, s.cursor.Mode()
 }
 
-func monitor(ctx context.Context, guard *ime.Guard) {
+func monitor(ctx context.Context, guard *ime.Guard, keys *keyboard) {
 	defer guard.Restore()
 	tick := time.NewTicker(sampleInterval)
 	defer tick.Stop()
 	var state sampler
+	var previous inputState
 	for {
 		select {
 		case <-ctx.Done():
@@ -155,6 +152,12 @@ func monitor(ctx context.Context, guard *ime.Guard) {
 		case now := <-tick.C:
 			window, mode := state.read(now)
 			guard.Observe(window, mode, now)
+			snapshot := inputState{window: window, mode: mode, readyProfile: guard.ReadyProfile()}
+			if snapshot != previous {
+				previous = snapshot
+				keys.state.Store(&snapshot)
+				keys.notify()
+			}
 		}
 	}
 }

@@ -6,15 +6,20 @@ import (
 
 	"golang.org/x/sys/windows"
 	"minecraft-input-guard/internal/config"
+	"minecraft-input-guard/internal/hotkey"
 )
 
 const (
-	whKeyboardLL   = 13
-	llkhfUp        = 0x80
-	maskKey        = 0xE8
-	maskExtra      = 0x4D49474D
-	inputKeyboard  = 1
-	keyeventfKeyUp = 2
+	whKeyboardLL      = 13
+	llkhfUp           = 0x80
+	llkhfExtended     = 0x01
+	maskKey           = 0xE8
+	maskExtra         = 0x4D49474D
+	replayExtra       = 0x4D494752
+	inputKeyboard     = 1
+	keyeventfKeyUp    = 2
+	keyeventfExtended = 1
+	keyeventfScancode = 8
 )
 
 var (
@@ -31,11 +36,16 @@ type keyboardEvent struct {
 	Extra                  uintptr
 }
 
-func InstallKeyboardHook(filter func(key uint8, up bool) bool) (func(), error) {
+func InstallKeyboardHook(filter func(hotkey.KeyEvent, bool) bool) (func(), error) {
 	callback := windows.NewCallback(func(code int32, message uintptr, event *keyboardEvent) uintptr {
-		if code == 0 && event.Key < 256 && event.Extra != maskExtra &&
-			filter(uint8(event.Key), event.Flags&llkhfUp != 0) {
-			return 1
+		if code == 0 && event.Key < 256 && event.Extra != maskExtra {
+			key := hotkey.KeyEvent{
+				Key: uint16(event.Key), Scan: uint16(event.Scan),
+				Extended: event.Flags&llkhfExtended != 0, Up: event.Flags&llkhfUp != 0,
+			}
+			if filter(key, event.Extra == replayExtra) {
+				return 1
+			}
 		}
 		result, _, _ := callNextHookEx.Call(0, uintptr(code), message, uintptr(unsafe.Pointer(event)))
 		return result
@@ -95,4 +105,28 @@ func MaskStartMenu() {
 		{Type: inputKeyboard, Key: keyboardInput{Key: maskKey, Flags: keyeventfKeyUp, Extra: maskExtra}},
 	}
 	sendInput.Call(uintptr(len(events)), uintptr(unsafe.Pointer(&events[0])), unsafe.Sizeof(events[0]))
+}
+
+func ReplayKeys(keys []hotkey.KeyEvent) int {
+	if len(keys) == 0 {
+		return 0
+	}
+	inputs := make([]input, len(keys))
+	for i, event := range keys {
+		key := keyboardInput{Key: event.Key, Extra: replayExtra}
+		if event.Scan != 0 {
+			key.Key = 0
+			key.Scan = event.Scan
+			key.Flags = keyeventfScancode
+		}
+		if event.Extended {
+			key.Flags |= keyeventfExtended
+		}
+		if event.Up {
+			key.Flags |= keyeventfKeyUp
+		}
+		inputs[i] = input{Type: inputKeyboard, Key: key}
+	}
+	count, _, _ := sendInput.Call(uintptr(len(inputs)), uintptr(unsafe.Pointer(&inputs[0])), unsafe.Sizeof(inputs[0]))
+	return int(count)
 }

@@ -27,10 +27,11 @@ type Guard struct {
 	UseLocalLayout bool
 	Report         func(string, ...any)
 
-	window      game.Window
-	seenCapture bool
-	nextCheck   time.Time
-	change      *change
+	window       game.Window
+	seenCapture  bool
+	readyProfile uintptr
+	nextCheck    time.Time
+	change       *change
 }
 
 type change struct {
@@ -75,6 +76,7 @@ func (g *Guard) update(now time.Time) {
 		switch profile {
 		case g.change.english:
 			g.change.confirmed = true
+			g.readyProfile = profile
 			return
 		case g.change.profile:
 			if !g.change.confirmed && now.Sub(g.change.requested) < layoutTimeout {
@@ -91,15 +93,18 @@ func (g *Guard) update(now time.Time) {
 	if g.change != nil && g.change.profile != profile {
 		g.change = nil
 	}
-	if !isEastAsian(profile) {
+	if !IsManagedProfile(profile) {
+		g.readyProfile = profile
 		return
 	}
 	if g.change == nil {
+		g.readyProfile = 0
 		if g.UseLocalLayout && g.Input.LocalLayouts() {
 			english := g.Input.USLayout()
 			if english != 0 {
 				if err := g.Input.SetLayout(g.window, english); err == nil {
 					g.change = &change{profile: profile, english: english, requested: now}
+					g.nextCheck = now.Add(25 * time.Millisecond)
 					g.log("requested US keyboard layout for Minecraft (was 0x%X)", uint32(profile))
 					return
 				} else {
@@ -134,10 +139,12 @@ func (g *Guard) readAndSuspendMode(now time.Time) {
 		c.modeKnown = true
 	}
 	if mode == 0 {
+		g.readyProfile = c.profile
 		c.tries = 0
 		c.warned = false
 		return
 	}
+	g.readyProfile = 0
 	if c.tries == 2 {
 		if !c.warned {
 			g.log("Minecraft's IME still reports composition mode; will retry")
@@ -156,14 +163,18 @@ func (g *Guard) readAndSuspendMode(now time.Time) {
 			c.warned = true
 		}
 		g.nextCheck = now.Add(retryInterval)
-	} else if first {
-		g.log("set Minecraft IME to direct input (profile 0x%X, previous mode 0x%X)", uint32(c.profile), mode)
+	} else {
+		g.nextCheck = now.Add(25 * time.Millisecond)
+		if first {
+			g.log("set Minecraft IME to direct input (profile 0x%X, previous mode 0x%X)", uint32(c.profile), mode)
+		}
 	}
 }
 
 func (g *Guard) Restore() {
 	c, w := g.change, g.window
 	g.change = nil
+	g.readyProfile = 0
 	g.seenCapture = false
 	g.nextCheck = time.Time{}
 	if c == nil || !g.Input.Exists(w) {
@@ -194,7 +205,9 @@ func (g *Guard) log(format string, args ...any) {
 	}
 }
 
-func isEastAsian(profile uintptr) bool {
+func (g *Guard) ReadyProfile() uintptr { return g.readyProfile }
+
+func IsManagedProfile(profile uintptr) bool {
 	switch profile & 0x03FF {
 	case 0x04, 0x11, 0x12: // Chinese, Japanese, Korean
 		return true

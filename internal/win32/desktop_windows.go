@@ -14,6 +14,7 @@ const (
 	wmEndSession   = 0x0016
 	wmRightUp      = 0x0205
 	wmTray         = 0x8001
+	wmInputState   = 0x8002
 	nimAdd         = 0
 	nimDelete      = 2
 	nifMessage     = 1
@@ -81,8 +82,9 @@ type notifyIcon struct {
 }
 
 type Desktop struct {
-	Handle uintptr
-	icon   notifyIcon
+	Handle             uintptr
+	OnInputStateChange func()
+	icon               notifyIcon
 }
 
 func AcquireInstance() (func(), bool, error) {
@@ -112,6 +114,11 @@ func NewDesktop() (*Desktop, error) {
 		case wmTray:
 			if lParam == wmRightUp {
 				d.showMenu()
+			}
+			return 0
+		case wmInputState:
+			if d.OnInputStateChange != nil {
+				d.OnInputStateChange()
 			}
 			return 0
 		case wmClose:
@@ -178,6 +185,10 @@ func (d *Desktop) showMenu() {
 	if choice == 1 {
 		d.Close()
 	}
+}
+
+func (d *Desktop) NotifyInputState() {
+	PostMessage(d.Handle, wmInputState, 0, 0)
 }
 
 func (d *Desktop) Close() {

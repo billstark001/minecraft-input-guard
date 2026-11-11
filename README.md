@@ -8,7 +8,7 @@ Build and open `bin/MinecraftInputGuard.exe`. Right-click **Minecraft Input Guar
 
 The default shortcut is `Win + .`. Some keyboards emit this chord for `Fn + Space`, so both trigger the same rule in Minecraft. Plain Space, a bare Win key, and the chord in other applications pass through normally.
 
-While you control the camera, the utility detects the captured cursor. Opening chat or another screen that releases the mouse restores the previous input state. This also restores input on focus loss or normal exit. The window filter recognizes SDL3, GLFW, and LWJGL 2 Minecraft windows when they run under `javaw.exe` or `java.exe` with a Minecraft title.
+While you control the camera, the utility detects the captured cursor. During the transition into gameplay, text-producing keys wait until the game input state is confirmed. The utility then replays the presses to the same captured game window. Opening chat or another screen that releases the mouse restores the previous input state. This also restores input on focus loss or normal exit. The window filter recognizes SDL3, GLFW, and LWJGL 2 Minecraft windows when they run under `javaw.exe` or `java.exe` with a Minecraft title.
 
 ### Input methods
 
