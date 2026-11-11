@@ -1,0 +1,7 @@
+{
+  "ime": true,
+  "useLocalLayout": true,
+  "blocked": [
+    { "virtualKey": 190, "modifiers": ["Win"] }
+  ]
+}
