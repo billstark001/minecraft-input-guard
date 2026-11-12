@@ -8,7 +8,7 @@ export GOTOOLCHAIN CGO_ENABLED
 COMMAND := ./cmd/minecraft-input-guard
 BINARY := bin/MinecraftInputGuard.exe
 
-.PHONY: all fmt vet test check build run observe clean
+.PHONY: all fmt vet test check build resources run observe clean
 
 all: check build
 
@@ -25,6 +25,9 @@ check: vet test
 
 build:
 	$(GO) build -trimpath -ldflags="-H=windowsgui" -o $(BINARY) $(COMMAND)
+
+resources:
+	$(GO) run github.com/tc-hib/go-winres@v0.3.3 make --in assets/winres.json --out internal/win32/icon --arch amd64,arm64
 
 run:
 	$(GO) run $(COMMAND)

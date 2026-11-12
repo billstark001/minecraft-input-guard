@@ -4,7 +4,7 @@ A Windows tray utility for Minecraft Java Edition. It temporarily puts the game'
 
 ## Run
 
-Build and open `bin/MinecraftInputGuard.exe`. Right-click **Minecraft Input Guard** in the notification area and select **Exit** to stop it. Close any earlier standalone emoji-shortcut blocker before running this utility.
+Build and open `bin/MinecraftInputGuard.exe`. Right-click **Minecraft Input Guard** in the notification area and select **About** for a short description or **Exit** to stop it. Click outside the menu or press Escape to dismiss it. Close any earlier standalone emoji-shortcut blocker before running this utility.
 
 The default shortcut is `Win + .`. Some keyboards emit this chord for `Fn + Space`, so both trigger the same rule in Minecraft. Plain Space, a bare Win key, and the chord in other applications pass through normally.
 
@@ -43,6 +43,7 @@ Use Go 1.24 or newer on Windows. The Makefile selects Go 1.27.4 by default. Run 
 | `make test` | Run unit tests |
 | `make check` | Run static checks and tests |
 | `make build` | Build the tray executable in `bin/` |
+| `make resources` | Regenerate the embedded icon resources from `assets/app-icon.png` |
 | `make all` | Run checks and build |
 | `make run` | Run from source with console diagnostics |
 | `make observe` | Observe Minecraft focus, cursor state, and layout without changing input |
