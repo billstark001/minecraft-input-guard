@@ -9,21 +9,29 @@ import (
 )
 
 const (
-	wmClose        = 0x0010
-	wmDestroy      = 0x0002
-	wmEndSession   = 0x0016
-	wmRightUp      = 0x0205
-	wmTray         = 0x8001
-	wmInputState   = 0x8002
-	nimAdd         = 0
-	nimDelete      = 2
-	nifMessage     = 1
-	nifIcon        = 2
-	nifTip         = 4
-	idiApplication = 32512
-	tpmRightButton = 0x0002
-	tpmReturnCmd   = 0x0100
-	tpmNoNotify    = 0x0080
+	wmClose          = 0x0010
+	wmDestroy        = 0x0002
+	wmEndSession     = 0x0016
+	wmCancelMode     = 0x001F
+	wmContextMenu    = 0x007B
+	wmRightUp        = 0x0205
+	wmTray           = 0x8001
+	wmInputState     = 0x8002
+	nimAdd           = 0
+	nimDelete        = 2
+	nimSetFocus      = 3
+	nimSetVersion    = 4
+	nifMessage       = 1
+	nifIcon          = 2
+	nifTip           = 4
+	nifShowTip       = 0x80
+	trayVersion      = 4
+	idiApplication   = 32512
+	appIcon          = 101
+	wsPopup          = 0x80000000
+	wsExToolWindow   = 0x00000080
+	swHide           = 0
+	swShowNoActivate = 4
 )
 
 var (
@@ -43,6 +51,9 @@ var (
 	destroyMenu           = user32.NewProc("DestroyMenu")
 	getCursorPos          = user32.NewProc("GetCursorPos")
 	setForegroundWindow   = user32.NewProc("SetForegroundWindow")
+	showWindow            = user32.NewProc("ShowWindow")
+	endMenu               = user32.NewProc("EndMenu")
+	windowFromPoint       = user32.NewProc("WindowFromPoint")
 	registerWindowMessage = user32.NewProc("RegisterWindowMessageW")
 	messageBox            = user32.NewProc("MessageBoxW")
 	shellNotifyIcon       = shell32.NewProc("Shell_NotifyIconW")
@@ -82,9 +93,13 @@ type notifyIcon struct {
 }
 
 type Desktop struct {
-	Handle             uintptr
-	OnInputStateChange func()
-	icon               notifyIcon
+	Handle               uintptr
+	OnInputStateChange   func()
+	icon                 notifyIcon
+	modernTray           bool
+	menuOpen             bool
+	mouseCallback        uintptr
+	menuKeyboardCallback uintptr
 }
 
 func AcquireInstance() (func(), bool, error) {
@@ -107,13 +122,17 @@ func NewDesktop() (*Desktop, error) {
 	taskbarCreated, _, _ := registerWindowMessage.Call(uintptr(unsafe.Pointer(taskbarName)))
 	callback := windows.NewCallback(func(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		if uintptr(msg) == taskbarCreated && taskbarCreated != 0 && d.icon.Window != 0 {
-			d.notify(nimAdd)
+			d.addIcon()
 			return 0
 		}
 		switch msg {
 		case wmTray:
-			if lParam == wmRightUp {
-				d.showMenu()
+			if d.modernTray && uint16(lParam) == wmContextMenu {
+				d.showMenu(Point{X: int32(int16(wParam)), Y: int32(int16(wParam >> 16))})
+			} else if !d.modernTray && lParam == wmRightUp {
+				var point Point
+				getCursorPos.Call(uintptr(unsafe.Pointer(&point)))
+				d.showMenu(point)
 			}
 			return 0
 		case wmInputState:
@@ -121,7 +140,14 @@ func NewDesktop() (*Desktop, error) {
 				d.OnInputStateChange()
 			}
 			return 0
+		case wmCancelMode:
+			if d.menuOpen {
+				endMenu.Call()
+			}
 		case wmClose:
+			if d.menuOpen {
+				endMenu.Call()
+			}
 			destroyWindow.Call(hwnd)
 			return 0
 		case wmEndSession:
@@ -139,24 +165,32 @@ func NewDesktop() (*Desktop, error) {
 	})
 
 	name := windows.StringToUTF16Ptr("MinecraftInputGuard")
-	class := windowClass{Size: uint32(unsafe.Sizeof(windowClass{})), Proc: callback, Instance: instance, Name: name}
+	icon, _, _ := loadIcon.Call(instance, appIcon)
+	if icon == 0 {
+		icon, _, _ = loadIcon.Call(0, idiApplication)
+	}
+	class := windowClass{
+		Size: uint32(unsafe.Sizeof(windowClass{})), Proc: callback, Instance: instance, Name: name,
+		Icon: icon, SmallIcon: icon,
+	}
 	atom, _, err := registerClassEx.Call(uintptr(unsafe.Pointer(&class)))
 	if atom == 0 {
 		return nil, fmt.Errorf("RegisterClassExW: %w", err)
 	}
-	hwnd, _, err := createWindowEx.Call(0, uintptr(unsafe.Pointer(name)), uintptr(unsafe.Pointer(name)),
-		0, 0, 0, 0, 0, 0, 0, instance, 0)
+	x, y := int32(-32000), int32(-32000)
+	hwnd, _, err := createWindowEx.Call(wsExToolWindow, uintptr(unsafe.Pointer(name)), uintptr(unsafe.Pointer(name)),
+		wsPopup, uintptr(x), uintptr(y), 1, 1, 0, 0, instance, 0)
 	if hwnd == 0 {
 		return nil, fmt.Errorf("CreateWindowExW: %w", err)
 	}
 	d.Handle = hwnd
-	icon, _, _ := loadIcon.Call(0, idiApplication)
+	d.prepareMenuDismissal()
 	d.icon = notifyIcon{
 		Size: uint32(unsafe.Sizeof(notifyIcon{})), Window: hwnd, ID: 1,
-		Flags: nifMessage | nifIcon | nifTip, Callback: wmTray, Icon: icon,
+		Flags: nifMessage | nifIcon | nifTip | nifShowTip, Callback: wmTray, Icon: icon, Version: trayVersion,
 	}
-	copy(d.icon.Tip[:], windows.StringToUTF16("Minecraft Input Guard"))
-	if !d.notify(nimAdd) {
+	copy(d.icon.Tip[:], windows.StringToUTF16(appName))
+	if !d.addIcon() {
 		destroyWindow.Call(hwnd)
 		return nil, fmt.Errorf("Shell_NotifyIconW: could not add the tray icon")
 	}
@@ -166,25 +200,6 @@ func NewDesktop() (*Desktop, error) {
 func (d *Desktop) notify(action uintptr) bool {
 	result, _, _ := shellNotifyIcon.Call(action, uintptr(unsafe.Pointer(&d.icon)))
 	return result != 0
-}
-
-func (d *Desktop) showMenu() {
-	menu, _, _ := createPopupMenu.Call()
-	if menu == 0 {
-		return
-	}
-	defer destroyMenu.Call(menu)
-	label := windows.StringToUTF16Ptr("Exit")
-	appendMenu.Call(menu, 0, 1, uintptr(unsafe.Pointer(label)))
-	var point Point
-	getCursorPos.Call(uintptr(unsafe.Pointer(&point)))
-	setForegroundWindow.Call(d.Handle)
-	choice, _, _ := trackPopupMenu.Call(menu, tpmRightButton|tpmReturnCmd|tpmNoNotify,
-		uintptr(point.X), uintptr(point.Y), 0, d.Handle, 0)
-	PostMessage(d.Handle, 0, 0, 0)
-	if choice == 1 {
-		d.Close()
-	}
 }
 
 func (d *Desktop) NotifyInputState() {
@@ -211,7 +226,7 @@ func (d *Desktop) Run() error {
 }
 
 func ShowError(err error) {
-	title := windows.StringToUTF16Ptr("Minecraft Input Guard")
+	title := windows.StringToUTF16Ptr(appName)
 	message := windows.StringToUTF16Ptr(err.Error())
 	messageBox.Call(0, uintptr(unsafe.Pointer(message)), uintptr(unsafe.Pointer(title)), 0x10)
 }
