@@ -4,6 +4,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"minecraft-input-guard/internal/version"
 )
 
 const (
@@ -115,7 +117,7 @@ func windowAt(point Point) uintptr {
 
 func showAbout() {
 	title := windows.StringToUTF16Ptr("About " + appName)
-	body := windows.StringToUTF16Ptr(appName + "\r\n\r\nA Windows utility for Minecraft Java Edition.\r\n" +
+	body := windows.StringToUTF16Ptr(appName + " " + version.Number() + "\r\n\r\nA Windows utility for Minecraft Java Edition.\r\n" +
 		"It pauses IME composition during gameplay and blocks configured shortcuts.")
 	messageBox.Call(0, uintptr(unsafe.Pointer(body)), uintptr(unsafe.Pointer(title)), 0x10040)
 }

@@ -15,6 +15,7 @@ import (
 	"minecraft-input-guard/internal/game"
 	"minecraft-input-guard/internal/hotkey"
 	"minecraft-input-guard/internal/ime"
+	"minecraft-input-guard/internal/version"
 	"minecraft-input-guard/internal/win32"
 )
 
@@ -22,11 +23,17 @@ const sampleInterval = 25 * time.Millisecond
 
 func main() {
 	var configPath, logPath string
-	var observe bool
+	var observe, showVersion bool
 	flag.StringVar(&configPath, "config", "", "path to JSON configuration (default: config.json beside the executable)")
 	flag.StringVar(&logPath, "log", "", "append diagnostic messages to this file")
 	flag.BoolVar(&observe, "observe", false, "report mouse and input state without changing input")
+	flag.BoolVar(&showVersion, "version", false, "print the application version and exit")
 	flag.Parse()
+
+	if showVersion {
+		fmt.Println(version.Number())
+		return
+	}
 
 	logger := log.New(os.Stderr, "", log.Ltime)
 	if logPath != "" {
