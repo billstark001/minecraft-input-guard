@@ -4,7 +4,9 @@ A Windows tray utility for Minecraft Java Edition. It temporarily puts the game'
 
 ## Run
 
-Build and open `bin/MinecraftInputGuard.exe`. Right-click **Minecraft Input Guard** in the notification area and select **About** for a short description or **Exit** to stop it. Click outside the menu or press Escape to dismiss it. Close any earlier standalone emoji-shortcut blocker before running this utility.
+Download the ZIP for your Windows architecture (x64 or ARM64) from [GitHub Releases](https://github.com/billstark001/minecraft-input-guard/releases/latest), extract it, and open `MinecraftInputGuard.exe`. If you built from source, open `bin/MinecraftInputGuard.exe`.
+
+Right-click **Minecraft Input Guard** in the notification area and select **About** to see the version or **Exit** to stop it. Click outside the menu or press Escape to dismiss it. Close any earlier standalone emoji-shortcut blocker before running this utility.
 
 The default shortcut is `Win + .`. Some keyboards emit this chord for `Fn + Space`, so both trigger the same rule in Minecraft. Plain Space, a bare Win key, and the chord in other applications pass through normally.
 
@@ -34,7 +36,7 @@ Copy `config.example.json` to `config.json` beside the executable, then edit it 
 
 ## Build and test
 
-Use Go 1.24 or newer on Windows. The Makefile selects Go 1.27.4 by default. Run these targets with GNU Make, or with `mingw32-make` if that is its executable name on your system.
+Use Go 1.24 or newer on Windows. The recommended toolchain is set in `go.mod`. Run these targets with GNU Make, or with `mingw32-make` if that is its executable name on your system.
 
 | Command | Action |
 | --- | --- |
@@ -43,10 +45,16 @@ Use Go 1.24 or newer on Windows. The Makefile selects Go 1.27.4 by default. Run 
 | `make test` | Run unit tests |
 | `make check` | Run static checks and tests |
 | `make build` | Build the tray executable in `bin/` |
-| `make resources` | Regenerate the embedded icon resources from `assets/app-icon.png` |
+| `make resources` | Regenerate the embedded Windows icon and version information |
 | `make all` | Run checks and build |
 | `make run` | Run from source with console diagnostics |
 | `make observe` | Observe Minecraft focus, cursor state, and layout without changing input |
 | `make clean` | Remove the built executable |
 
 Use `-log <path>` with the built executable to record startup and input-state transitions for troubleshooting. Diagnostics do not log individual keystrokes.
+
+## Release
+
+Set the new `major.minor.patch` version in `internal/version/VERSION`, add a matching dated section to [CHANGELOG.md](CHANGELOG.md), and run `make resources`. Commit both generated Windows resource files with the change.
+
+CI runs static checks and tests on Windows and uploads the same x64 and ARM64 ZIPs used for release. After the version change is on `main` and CI passes, run the **Release** workflow on `main`. It repeats the checks and publishes the version tag, ZIPs, and notes from the changelog.
